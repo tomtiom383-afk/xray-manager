@@ -10,7 +10,7 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-# Interactive: ask for domain
+# ---- Ask for domain ----
 echo "============================================"
 echo "   Xray Manager 一键安装脚本"
 echo "============================================"
@@ -18,11 +18,9 @@ echo ""
 
 if [ -n "${DOMAIN:-}" ]; then
   echo "域名: ${DOMAIN}（来自环境变量）"
-elif [ -t 0 ]; then
-  read -rp "请输入域名（已解析到本服务器 IP，留空跳过 HTTPS）: " DOMAIN
-elif [ -e /dev/tty ]; then
-  echo -n "请输入域名（已解析到本服务器 IP，留空跳过 HTTPS）: " > /dev/tty
-  read -r DOMAIN < /dev/tty
+else
+  printf "请输入域名（已解析到本服务器 IP，回车跳过 HTTPS）: "
+  read -r DOMAIN
 fi
 echo ""
 
@@ -72,7 +70,6 @@ else
   apt-get update -qq
   apt-get install -y -qq nginx certbot python3-certbot-nginx
 
-  # Write Nginx HTTP reverse proxy config
   cat > "/etc/nginx/sites-available/${APP_NAME}" <<NGINX
 server {
     listen 80;
@@ -96,13 +93,11 @@ NGINX
   rm -f /etc/nginx/sites-enabled/default
   nginx -t && systemctl reload nginx
 
-  # Open firewall ports
   if command -v ufw &>/dev/null; then
     ufw allow 80/tcp  &>/dev/null || true
     ufw allow 443/tcp &>/dev/null || true
   fi
 
-  # Request Let's Encrypt certificate
   CERTBOT_OUTPUT=$(certbot --nginx -d "${DOMAIN}" --non-interactive --agree-tos --register-unsafely-without-email --redirect 2>&1) || true
 
   if echo "${CERTBOT_OUTPUT}" | grep -q "Congratulations"; then
@@ -151,8 +146,7 @@ else
 首次访问请创建管理员账号。
 
 如需 HTTPS，配置域名解析后运行:
-  sudo apt install nginx certbot python3-certbot-nginx
-  sudo certbot --nginx -d your-domain.com
+  certbot --nginx -d your-domain.com
 
 常用命令:
   cd /opt/xray-manager && docker compose logs -f

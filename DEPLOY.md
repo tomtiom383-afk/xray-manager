@@ -34,18 +34,17 @@ Xray Manager 已内置管理员注册/登录系统。首次访问时会要求创
 
 ## 方式一：一键安装（推荐）
 
-在全新 VPS 上执行一条命令：
+在全新 VPS 上执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tomtiom383-afk/xray-manager/main/docker-install.sh | bash
+wget -qO install.sh https://raw.githubusercontent.com/tomtiom383-afk/xray-manager/main/docker-install.sh && bash install.sh
 ```
 
-脚本自动完成以下步骤：
-1. 询问域名（需提前解析到服务器 IP，留空跳过 HTTPS）
-2. 安装 Docker
-3. 从 GitHub 拉取代码并构建容器
-4. 安装 Nginx + Certbot，自动申请 Let's Encrypt 证书
-5. 配置 HTTPS 反向代理，HTTP 自动跳转 HTTPS
+脚本会交互式询问域名（需提前解析到服务器 IP，回车跳过），然后自动完成：
+1. 安装 Docker
+2. 从 GitHub 拉取代码并构建容器
+3. 安装 Nginx + Certbot，自动申请 Let's Encrypt 证书
+4. 配置 HTTPS 反向代理，HTTP 自动跳转 HTTPS
 
 证书续期由 certbot systemd timer 自动处理，无需手动干预。
 
