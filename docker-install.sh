@@ -24,8 +24,8 @@ else
 fi
 echo ""
 
-# ---- [0/5] Clone from GitHub if piped via curl ----
-if [ -f "${BASH_SOURCE[0]}" ] && [ "${BASH_SOURCE[0]}" != "bash" ]; then
+# ---- [0/5] Clone from GitHub if not running from within the repo ----
+if [ -f "${BASH_SOURCE[0]}" ] && [ -f "$(dirname "${BASH_SOURCE[0]}")/docker-compose.yml" ]; then
   SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 else
   echo "[0/5] 从 GitHub 拉取项目"
