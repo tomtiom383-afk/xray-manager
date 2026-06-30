@@ -1,0 +1,11 @@
+services:
+  xray-manager:
+    build: .
+    container_name: xray-manager
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./db.json:/app/db.json
+    environment:
+      - PYTHONUNBUFFERED=1
