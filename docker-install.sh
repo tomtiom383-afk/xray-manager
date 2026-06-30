@@ -41,6 +41,7 @@ fi
 
 # ---- [2/5] Copy files ----
 echo "[2/5] 复制文件到 ${APP_DIR}"
+command -v rsync &>/dev/null || apt-get install -y -qq rsync
 mkdir -p "${APP_DIR}"
 rsync -a --delete \
   --exclude ".venv" \
