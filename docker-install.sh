@@ -67,6 +67,14 @@ else
   apt-get update -qq
   apt-get install -y -qq nginx certbot python3-certbot-nginx
 
+  # Free port 443 if occupied by another service
+  PORT443_PID=$(ss -tlnp | grep ':443 ' | grep -oP 'pid=\K[0-9]+' | head -1)
+  if [ -n "${PORT443_PID}" ]; then
+    echo "    端口 443 被占用 (PID: ${PORT443_PID})，正在释放..."
+    kill "${PORT443_PID}" 2>/dev/null || true
+    sleep 1
+  fi
+
   cat > "/etc/nginx/sites-available/${APP_NAME}" <<NGINX
 server {
     listen 80;
