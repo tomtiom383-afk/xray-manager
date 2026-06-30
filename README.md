@@ -127,6 +127,58 @@ docker compose up -d
 
 > Windows 本地 HTTP 环境下 `XRAY_COOKIE_SECURE` 自动为 `false`，不需要额外配置。
 
+### 方式五：已有 Nginx / SNI 分流 / 泛域名证书
+
+如果你的机器已经部署了 Nginx，并使用 **stream 层 SNI 分流** + **泛域名证书**（如 Cloudflare 源证书），不要运行一键安装脚本，按以下步骤手动接入：
+
+1. 用 Docker Compose 启动 Xray Manager：
+
+```bash
+git clone https://github.com/tomtiom383-afk/xray-manager.git
+cd xray-manager
+mkdir -p data
+docker compose up -d
+```
+
+2. 在 SNI 分流配置中，把子域名指向本地 HTTPS 端口（例如 `127.0.0.1:8081`）：
+
+```nginx
+# /etc/nginx/stream.d/sni_split.conf
+map $ssl_preread_server_name $upstream_443 {
+    # ... 其他站点
+    xray.zhangliyun.site      127.0.0.1:8081;
+    default                   444;
+}
+```
+
+3. 在 HTTP Nginx 中新增一个 `server` 块，监听本地 SSL 端口，使用泛域名证书：
+
+```nginx
+server {
+    listen 127.0.0.1:8081 ssl;
+    server_name xray.zhangliyun.site;
+
+    ssl_certificate     /etc/nginx/ssl/zhangliyun.pem;
+    ssl_certificate_key /etc/nginx/ssl/zhangliyun.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}
+```
+
+4. 重载 Nginx：
+
+```bash
+nginx -t && nginx -s reload
+```
+
+> 一键安装脚本会尝试安装 Nginx 并申请 Let's Encrypt 证书，在已有 Nginx + SNI 分流的环境中可能失败，建议直接手动接入。
+
 ---
 
 ## 首次使用

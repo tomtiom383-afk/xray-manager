@@ -63,17 +63,23 @@ docker compose up -d
 if [ -z "${DOMAIN}" ]; then
   echo "[4/5] 未填写域名，跳过 Nginx 和 HTTPS 配置"
 else
-  echo "[4/5] 安装 Nginx + Certbot，申请 SSL 证书"
-  apt-get update -qq
-  apt-get install -y -qq nginx certbot python3-certbot-nginx
+  # Check if 443 is managed by Nginx stream SNI split
+  if [ -d /etc/nginx/stream.d ] && ls /etc/nginx/stream.d/*.conf 1>/dev/null 2>&1; then
+    echo "[4/5] 检测到 Nginx stream SNI 分流配置，跳过 Nginx 安装和证书申请"
+    echo "    请手动将 xray.${DOMAIN} 加入 SNI 分流 map，并参考 README「方式五」配置 HTTPS"
+    echo "    容器已运行在 127.0.0.1:8080"
+  else
+    echo "[4/5] 安装 Nginx + Certbot，申请 SSL 证书"
+    apt-get update -qq
+    apt-get install -y -qq nginx certbot python3-certbot-nginx
 
-  # Free port 443 if occupied by another service
-  PORT443_PID=$(ss -tlnp | grep ':443 ' | grep -oP 'pid=\K[0-9]+' | head -1)
-  if [ -n "${PORT443_PID}" ]; then
-    echo "    端口 443 被占用 (PID: ${PORT443_PID})，正在释放..."
-    kill "${PORT443_PID}" 2>/dev/null || true
-    sleep 1
-  fi
+    # Free port 443 if occupied by another service
+    PORT443_PID=$(ss -tlnp | grep ':443 ' | grep -oP 'pid=\K[0-9]+' | head -1)
+    if [ -n "${PORT443_PID}" ]; then
+      echo "    端口 443 被占用 (PID: ${PORT443_PID})，正在释放..."
+      kill "${PORT443_PID}" 2>/dev/null || true
+      sleep 1
+    fi
 
   cat > "/etc/nginx/sites-available/${APP_NAME}" <<NGINX
 server {
