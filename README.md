@@ -146,7 +146,7 @@ docker compose up -d
 # /etc/nginx/stream.d/sni_split.conf
 map $ssl_preread_server_name $upstream_443 {
     # ... 其他站点
-    xray.zhangliyun.site      127.0.0.1:8081;
+    xray.example.com          127.0.0.1:8081;
     default                   444;
 }
 ```
@@ -156,10 +156,10 @@ map $ssl_preread_server_name $upstream_443 {
 ```nginx
 server {
     listen 127.0.0.1:8081 ssl;
-    server_name xray.zhangliyun.site;
+    server_name xray.example.com;
 
-    ssl_certificate     /etc/nginx/ssl/zhangliyun.pem;
-    ssl_certificate_key /etc/nginx/ssl/zhangliyun.key;
+    ssl_certificate     /etc/nginx/ssl/example.com.pem;
+    ssl_certificate_key /etc/nginx/ssl/example.com.key;
 
     location / {
         proxy_pass http://127.0.0.1:8080;
