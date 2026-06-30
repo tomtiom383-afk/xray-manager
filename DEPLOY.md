@@ -40,7 +40,14 @@ Xray Manager 已内置管理员注册/登录系统。首次访问时会要求创
 curl -fsSL https://raw.githubusercontent.com/tomtiom383-afk/xray-manager/main/docker-install.sh | bash
 ```
 
-脚本会自动安装 Docker、拉取代码、构建镜像并启动服务，无需手动 clone 仓库。
+脚本自动完成以下步骤：
+1. 询问域名（需提前解析到服务器 IP，留空跳过 HTTPS）
+2. 安装 Docker
+3. 从 GitHub 拉取代码并构建容器
+4. 安装 Nginx + Certbot，自动申请 Let's Encrypt 证书
+5. 配置 HTTPS 反向代理，HTTP 自动跳转 HTTPS
+
+证书续期由 certbot systemd timer 自动处理，无需手动干预。
 
 ## 方式二：手动 Docker Compose
 
