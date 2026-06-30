@@ -25,7 +25,9 @@ from config_gen import ConfigError, generate_config, validate_reality_short_ids
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "db.json"
+DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
+DB_PATH = DATA_DIR / "db.json"
 
 SESSION_LIFETIME = timedelta(hours=24)
 MAX_LOGIN_ATTEMPTS = 5

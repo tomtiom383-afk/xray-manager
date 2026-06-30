@@ -6,7 +6,7 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
-      - ./db.json:/app/db.json
+      - ./data:/app/data
     environment:
       - PYTHONUNBUFFERED=1
       - XRAY_COOKIE_SECURE=true

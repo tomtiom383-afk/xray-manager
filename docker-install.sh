@@ -55,6 +55,7 @@ rsync -a --delete \
 # ---- [3/5] Build and start container ----
 cd "${APP_DIR}"
 echo "[3/5] 构建并启动容器"
+mkdir -p data
 docker compose build --no-cache
 docker compose up -d
 

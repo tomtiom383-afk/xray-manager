@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 db.json
+data/
 *.bak*
 .DS_Store
 .env

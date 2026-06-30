@@ -119,17 +119,17 @@ environment:
 
 ## 数据持久化
 
-`db.json` 通过 volume 挂载到宿主机当前目录，容器删除后数据不会丢失。
+`data/db.json` 通过 volume 挂载到宿主机，容器删除后数据不会丢失。
 
 ```yaml
 volumes:
-  - ./db.json:/app/db.json
+  - ./data:/app/data
 ```
 
 ## 备份
 
 ```bash
-cp db.json db.json.$(date +%Y%m%d).bak
+cp data/db.json data/db.json.$(date +%Y%m%d).bak
 ```
 
 ## 更新升级
