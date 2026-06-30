@@ -32,7 +32,17 @@ Xray Manager 已内置管理员注册/登录系统。首次访问时会要求创
 
 如果 `db.json` 中没有管理员账号且 `auth.require_auth` 为 `false`，应用允许无登录访问，但会在首页提示设置管理员。
 
-## 方式一：Docker Compose（推荐）
+## 方式一：一键安装（推荐）
+
+在全新 VPS 上执行一条命令：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tomtiom383-afk/xray-manager/main/docker-install.sh | bash
+```
+
+脚本会自动安装 Docker、拉取代码、构建镜像并启动服务，无需手动 clone 仓库。
+
+## 方式二：手动 Docker Compose
 
 ### 1. 安装 Docker
 
@@ -65,16 +75,6 @@ docker compose logs -f
 docker compose down      # 停止
 docker compose restart   # 重启
 docker compose pull      # 更新镜像后拉取
-```
-
-## 方式二：一键安装脚本（VPS）
-
-适用于全新 VPS，会自动安装 Docker、复制文件、启动服务。
-
-```bash
-# 上传到 VPS 后执行
-chmod +x docker-install.sh
-sudo ./docker-install.sh
 ```
 
 ## 方式三：systemd + venv（传统方式）
