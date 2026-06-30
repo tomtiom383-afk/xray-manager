@@ -15,7 +15,15 @@ echo "============================================"
 echo "   Xray Manager 一键安装脚本"
 echo "============================================"
 echo ""
-read -rp "请输入域名（已解析到本服务器 IP，留空跳过 HTTPS）: " DOMAIN
+
+if [ -n "${DOMAIN:-}" ]; then
+  echo "域名: ${DOMAIN}（来自环境变量）"
+elif [ -t 0 ]; then
+  read -rp "请输入域名（已解析到本服务器 IP，留空跳过 HTTPS）: " DOMAIN
+elif [ -e /dev/tty ]; then
+  echo -n "请输入域名（已解析到本服务器 IP，留空跳过 HTTPS）: " > /dev/tty
+  read -r DOMAIN < /dev/tty
+fi
 echo ""
 
 # ---- [0/5] Clone from GitHub if piped via curl ----
