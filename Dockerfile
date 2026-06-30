@@ -14,5 +14,6 @@ EXPOSE 8080
 
 ENV PYTHONUNBUFFERED=1
 ENV XRAY_AUTH_REQUIRED=true
+ENV XRAY_COOKIE_SECURE=true
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

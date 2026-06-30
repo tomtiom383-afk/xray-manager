@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import base64
+import copy
+import hmac
 import json
 import os
 import secrets
 import tempfile
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 import argon2
 from cryptography.hazmat.primitives import serialization
@@ -62,29 +65,48 @@ BUILTIN_OUTBOUND_TAGS = {item["tag"] for item in DEFAULT_OUTBOUNDS}
 COLLECTIONS = {"inbounds", "users", "routing_policies"}
 GLOBAL_COLLECTIONS = {"outbounds"}
 
+def _get_client_ip(request: Request) -> str:
+    cf_ip = request.headers.get("CF-Connecting-IP")
+    if cf_ip:
+        return cf_ip.strip()
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else "unknown"
+
+
 _COOKIE_SECURE = os.environ.get("XRAY_COOKIE_SECURE", "false").lower() in {"1", "true", "yes"}
-_AUTH_REQUIRED_ENV = os.environ.get("XRAY_AUTH_REQUIRED", "").lower()
-
-app = FastAPI(title="Xray Manager", version="1.0.0")
 
 
-@app.on_event("startup")
-def startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     ensure_db()
     store = load_store()
     auth = store.get("auth", {})
     if not auth.get("require_auth"):
-        print("未启用登录保护，建议访问 /api/auth/setup-required 初始化管理员账号")
+        if os.environ.get("XRAY_AUTH_REQUIRED", "").lower() in {"false", "0", "no", "off"}:
+            print("警告: 登录保护已通过 XRAY_AUTH_REQUIRED=false 禁用")
+        else:
+            print("未启用登录保护，建议访问 /api/auth/setup-required 初始化管理员账号")
     else:
         print(f"登录保护已启用，管理员数: {len(auth.get('users', []))}")
+    yield
+
+
+app = FastAPI(title="Xray Manager", version="1.0.0", lifespan=lifespan)
 
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
+    _purge_expired_sessions()
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = "default-src 'self'"
     return response
 
 
@@ -125,7 +147,6 @@ def _clear_session_cookie(response: Response) -> None:
 
 
 def _create_session(user_id: str) -> str:
-    _purge_expired_sessions()
     token = secrets.token_urlsafe(32)
     _sessions[token] = {
         "user_id": user_id,
@@ -187,9 +208,13 @@ def _normalize_auth(store: dict[str, Any]) -> None:
     users = auth["users"]
     if not isinstance(users, list):
         auth["users"] = []
-    # Configuration access must always be protected. Existing databases with
-    # require_auth=false are migrated into the setup/login flow.
-    auth["require_auth"] = True
+    env = os.environ.get("XRAY_AUTH_REQUIRED", "").lower()
+    if env in {"false", "0", "no", "off"}:
+        auth["require_auth"] = False
+    else:
+        # Configuration access must always be protected. Existing databases with
+        # require_auth=false are migrated into the setup/login flow.
+        auth["require_auth"] = True
 
 
 def _find_auth_user(store: dict[str, Any], username: str) -> dict[str, Any] | None:
@@ -224,7 +249,7 @@ def _csrf_required(request: Request) -> None:
         return
     cookie = request.cookies.get("csrf_token")
     header = request.headers.get("X-CSRF-Token")
-    if not cookie or cookie != header:
+    if not cookie or not hmac.compare_digest(cookie, header or ""):
         raise HTTPException(status_code=403, detail="CSRF token 缺失或无效")
 
 
@@ -285,7 +310,7 @@ def auth_register(payload: dict[str, Any], response: Response) -> dict[str, Any]
 
 @app.post("/api/auth/login")
 def auth_login(request: Request, payload: dict[str, Any], response: Response) -> dict[str, Any]:
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _get_client_ip(request)
     _check_login_rate_limit(client_ip)
 
     store = load_store()
@@ -408,7 +433,7 @@ def _migrate_outbounds_to_global(raw: dict[str, Any]) -> None:
 def _normalize_store(raw: dict[str, Any]) -> dict[str, Any]:
     # Work on a deep copy so mutations don't affect the loaded raw dict,
     # otherwise the equality check below may incorrectly report no changes.
-    raw = json.loads(json.dumps(raw, ensure_ascii=False))
+    raw = copy.deepcopy(raw)
     if "vps_profiles" not in raw:
         workspace = _normalize_workspace({key: raw.get(key) for key in DEFAULT_DB})
         # Migrate any top-level outbounds before wrapping into vps_profiles.
@@ -574,6 +599,14 @@ def validate_inbound_item(item: dict[str, Any]) -> None:
     tag = str(item.get("tag") or "").strip()
     if not tag:
         raise HTTPException(status_code=400, detail="inbound Tag cannot be empty")
+    port = item.get("port")
+    if port is not None:
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="端口必须是整数")
+        if not (1 <= port <= 65535):
+            raise HTTPException(status_code=400, detail="端口必须在 1-65535 范围内")
     if item.get("protocol") != "vless-reality":
         return
 

@@ -9,3 +9,4 @@ services:
       - ./db.json:/app/db.json
     environment:
       - PYTHONUNBUFFERED=1
+      - XRAY_COOKIE_SECURE=true

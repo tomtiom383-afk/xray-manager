@@ -220,29 +220,6 @@ def _build_inbound(inbound: JsonDict, users: list[JsonDict]) -> JsonDict:
             "streamSettings": stream_settings,
         }
 
-    if protocol == "vless-tls":
-        tls = params.get("tls", {})
-        clients = [
-            {
-                "id": user.get("credential", {}).get("uuid"),
-                "email": user.get("email"),
-                **({"flow": params.get("flow")} if params.get("flow") else {}),
-            }
-            for user in inbound_users
-        ]
-        return {
-            "listen": inbound.get("listen", "0.0.0.0"),
-            "port": int(inbound.get("port", 443)),
-            "protocol": "vless",
-            "settings": {"clients": clients, "decryption": "none"},
-            "streamSettings": {
-                "network": params.get("network", "raw"),
-                "security": "tls",
-                "tlsSettings": _tls_settings(tls),
-            },
-            "tag": inbound.get("tag"),
-        }
-
     if protocol == "shadowsocks-2022":
         method = params.get("method", "2022-blake3-aes-128-gcm")
         clients = [
@@ -262,51 +239,6 @@ def _build_inbound(inbound: JsonDict, users: list[JsonDict]) -> JsonDict:
                 "network": params.get("network", "tcp,udp"),
                 "clients": clients,
             },
-            "tag": inbound.get("tag"),
-        }
-
-    if protocol == "trojan":
-        clients = [
-            {
-                "password": user.get("credential", {}).get("password"),
-                "email": user.get("email"),
-            }
-            for user in inbound_users
-        ]
-        return {
-            "listen": inbound.get("listen", "0.0.0.0"),
-            "port": int(inbound.get("port", 443)),
-            "protocol": "trojan",
-            "settings": {"clients": clients},
-            "streamSettings": {
-                "network": params.get("network", "raw"),
-                "security": "tls",
-                "tlsSettings": _tls_settings(params.get("tls", {})),
-            },
-            "tag": inbound.get("tag"),
-        }
-
-    if protocol == "vmess-ws-tls":
-        clients = [
-            {
-                "id": user.get("credential", {}).get("uuid"),
-                "email": user.get("email"),
-                "alterId": 0,
-            }
-            for user in inbound_users
-        ]
-        return {
-            "listen": inbound.get("listen", "0.0.0.0"),
-            "port": int(inbound.get("port", 443)),
-            "protocol": "vmess",
-            "settings": {"clients": clients},
-            "streamSettings": {
-                "network": "ws",
-                "security": "tls",
-                "tlsSettings": _tls_settings(params.get("tls", {})),
-                "wsSettings": {"path": params.get("path", "/ws")},
-            },
-            "tag": inbound.get("tag"),
             "tag": inbound.get("tag"),
         }
 
@@ -347,22 +279,6 @@ def _build_outbound(outbound: JsonDict) -> JsonDict:
             "tag": tag,
         }
 
-    if outbound_type == "trojan":
-        return {
-            "protocol": "trojan",
-            "settings": {
-                "servers": [
-                    {
-                        "address": params.get("address", ""),
-                        "port": int(params.get("port", 443)),
-                        "password": params.get("password", ""),
-                    }
-                ]
-            },
-            "streamSettings": _stream_settings(params),
-            "tag": tag,
-        }
-
     if outbound_type == "shadowsocks":
         return {
             "protocol": "shadowsocks",
@@ -376,28 +292,6 @@ def _build_outbound(outbound: JsonDict) -> JsonDict:
                     }
                 ]
             },
-            "tag": tag,
-        }
-
-    if outbound_type == "vmess":
-        return {
-            "protocol": "vmess",
-            "settings": {
-                "vnext": [
-                    {
-                        "address": params.get("address", ""),
-                        "port": int(params.get("port", 443)),
-                        "users": [
-                            {
-                                "id": params.get("uuid", ""),
-                                "alterId": int(params.get("alterId", 0)),
-                                "security": params.get("security_method", "auto"),
-                            }
-                        ],
-                    }
-                ]
-            },
-            "streamSettings": _stream_settings(params),
             "tag": tag,
         }
 
@@ -580,25 +474,6 @@ def _stream_settings(params: JsonDict) -> JsonDict:
     return stream
 
 
-def _tls_settings(tls: JsonDict) -> JsonDict:
-    certificates = []
-    cert_file = tls.get("certificateFile")
-    key_file = tls.get("keyFile")
-    if cert_file or key_file:
-        certificates.append(
-            {
-                "certificateFile": cert_file or "",
-                "keyFile": key_file or "",
-            }
-        )
-    result: JsonDict = {
-        "serverName": tls.get("serverName", ""),
-    }
-    if certificates:
-        result["certificates"] = certificates
-    return result
-
-
 def _as_list(value: Any) -> list[Any]:
     if value is None:
         return []
@@ -621,7 +496,3 @@ def validate_reality_short_ids(short_ids: list[Any], require_non_empty: bool = F
     if require_non_empty and not result:
         raise ConfigError("REALITY shortIds must include at least one non-empty short ID")
     return result
-
-
-def _validate_reality_short_ids(short_ids: list[Any]) -> list[str]:
-    return validate_reality_short_ids(short_ids)

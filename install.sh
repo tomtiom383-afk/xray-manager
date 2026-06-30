@@ -34,6 +34,7 @@ echo "[3/5] 创建 Python 虚拟环境并安装依赖"
 python3 -m venv "${APP_DIR}/.venv"
 "${APP_DIR}/.venv/bin/pip" install --upgrade pip
 "${APP_DIR}/.venv/bin/pip" install -r "${APP_DIR}/requirements.txt"
+chown -R nobody:nogroup "${APP_DIR}"
 
 echo "[4/5] 写入 systemd 服务"
 cat > "${SERVICE_FILE}" <<EOF

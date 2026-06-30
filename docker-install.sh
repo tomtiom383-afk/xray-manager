@@ -11,7 +11,7 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-if ! command -v docker &>/dev/null || ! command -v docker-compose &>/dev/null; then
+if ! command -v docker &>/dev/null || { ! docker compose version &>/dev/null && ! command -v docker-compose &>/dev/null; }; then
   echo "[1/4] 安装 Docker 和 Docker Compose"
   apt-get update
   apt-get install -y ca-certificates curl gnupg
