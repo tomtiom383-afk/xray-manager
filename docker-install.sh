@@ -96,7 +96,7 @@ NGINX
 
   ln -sf "/etc/nginx/sites-available/${APP_NAME}" "/etc/nginx/sites-enabled/${APP_NAME}"
   rm -f /etc/nginx/sites-enabled/default
-  nginx -t && systemctl reload nginx
+  nginx -t && (systemctl reload nginx 2>/dev/null || systemctl start nginx)
 
   if command -v ufw &>/dev/null; then
     ufw allow 80/tcp  &>/dev/null || true
