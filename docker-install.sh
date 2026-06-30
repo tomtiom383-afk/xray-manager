@@ -24,18 +24,14 @@ else
 fi
 echo ""
 
-# ---- [0/5] Clone from GitHub if not running from within the repo ----
-if [ -f "${BASH_SOURCE[0]}" ] && [ -f "$(dirname "${BASH_SOURCE[0]}")/docker-compose.yml" ]; then
-  SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-else
-  echo "[0/5] 从 GitHub 拉取项目"
-  if ! command -v git &>/dev/null; then
-    apt-get update -qq && apt-get install -y -qq git
-  fi
-  TMP_DIR=$(mktemp -d)
-  git clone --depth 1 "https://github.com/${GITHUB_REPO}.git" "${TMP_DIR}"
-  SOURCE_DIR="${TMP_DIR}"
+# ---- [0/5] Clone from GitHub ----
+echo "[0/5] 从 GitHub 拉取项目"
+if ! command -v git &>/dev/null; then
+  apt-get update -qq && apt-get install -y -qq git
 fi
+TMP_DIR=$(mktemp -d)
+git clone --depth 1 "https://github.com/${GITHUB_REPO}.git" "${TMP_DIR}"
+SOURCE_DIR="${TMP_DIR}"
 
 # ---- [1/5] Install Docker ----
 if ! command -v docker &>/dev/null || { ! docker compose version &>/dev/null && ! command -v docker-compose &>/dev/null; }; then
