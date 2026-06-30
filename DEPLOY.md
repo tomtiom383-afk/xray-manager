@@ -37,7 +37,7 @@ Xray Manager 已内置管理员注册/登录系统。首次访问时会要求创
 在全新 VPS 上执行：
 
 ```bash
-wget -qO install.sh https://raw.githubusercontent.com/tomtiom383-afk/xray-manager/main/docker-install.sh && bash install.sh
+git clone https://github.com/tomtiom383-afk/xray-manager.git && bash xray-manager/docker-install.sh
 ```
 
 脚本会交互式询问域名（需提前解析到服务器 IP，回车跳过），然后自动完成：
