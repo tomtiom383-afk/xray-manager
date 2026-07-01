@@ -1,6 +1,5 @@
 use std::io::{BufRead, BufReader};
 use std::os::windows::process::CommandExt;
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -14,9 +13,8 @@ use tokio::sync::watch;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 static SIDECAR_PID: AtomicU32 = AtomicU32::new(0);
-static mut SIDECAR_PATH: Option<PathBuf> = None;
 
-fn extract_sidecar() -> PathBuf {
+fn extract_sidecar() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join("xray-manager");
     std::fs::create_dir_all(&dir).ok();
     let path = dir.join("xray-manager-server.exe");
@@ -24,12 +22,11 @@ fn extract_sidecar() -> PathBuf {
         let bytes = include_bytes!("../binaries/xray-manager-server-x86_64-pc-windows-msvc.exe");
         std::fs::write(&path, bytes).expect("failed to extract sidecar");
     }
-    unsafe { SIDECAR_PATH = Some(path.clone()); }
     path
 }
 
-fn data_dir() -> PathBuf {
-    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
+fn data_dir() -> std::path::PathBuf {
+    let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("."));
     exe.parent().unwrap_or(std::path::Path::new(".")).join("data")
 }
 
@@ -50,7 +47,7 @@ fn spawn_sidecar() -> (std::process::Child, BufReader<std::process::ChildStdout>
     (child, reader)
 }
 
-fn kill_sidecar() {
+fn cleanup() {
     let pid = SIDECAR_PID.load(Ordering::Relaxed);
     if pid != 0 {
         let _ = Command::new("taskkill")
@@ -59,14 +56,13 @@ fn kill_sidecar() {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
+        // Wait for termination
+        std::thread::sleep(std::time::Duration::from_millis(800));
     }
-    // Clean up extracted sidecar and entire temp dir
-    let dir = std::env::temp_dir().join("xray-manager");
-    std::fs::remove_dir_all(dir).ok();
-    // Clean up legacy data dir from older versions
+    let _ = std::fs::remove_dir_all(std::env::temp_dir().join("xray-manager"));
+    let _ = std::fs::remove_dir_all(data_dir());
     if let Ok(home) = std::env::var("USERPROFILE") {
-        let legacy = std::path::Path::new(&home).join(".xray-manager");
-        std::fs::remove_dir_all(legacy).ok();
+        let _ = std::fs::remove_dir_all(std::path::Path::new(&home).join(".xray-manager"));
     }
 }
 
@@ -88,7 +84,7 @@ async fn get_backend_port(state: tauri::State<'_, AppState>) -> Result<u16, Stri
 }
 
 pub fn run() {
-    kill_sidecar();
+    cleanup();
     std::thread::sleep(std::time::Duration::from_millis(300));
 
     let (port_tx, port_rx) = watch::channel(None);
@@ -128,7 +124,7 @@ pub fn run() {
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "quit" => {
-                        kill_sidecar();
+                        cleanup();
                         app.exit(0);
                     }
                     "show" => {
@@ -153,7 +149,7 @@ pub fn run() {
             let window = app.get_webview_window("main").unwrap();
             window.on_window_event(|event| {
                 if let tauri::WindowEvent::CloseRequested { .. } = event {
-                    kill_sidecar();
+                    cleanup();
                     std::process::exit(0);
                 }
             });
@@ -162,4 +158,6 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("failed");
+    // cleanup after run returns (normal exit)
+    cleanup();
 }
