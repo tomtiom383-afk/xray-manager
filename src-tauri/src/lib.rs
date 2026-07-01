@@ -28,6 +28,28 @@ fn extract_sidecar() -> PathBuf {
     path
 }
 
+fn data_dir() -> PathBuf {
+    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
+    exe.parent().unwrap_or(std::path::Path::new(".")).join("data")
+}
+
+fn spawn_sidecar() -> (std::process::Child, BufReader<std::process::ChildStdout>) {
+    let path = extract_sidecar();
+    let data = data_dir();
+    let mut child = Command::new(&path)
+        .arg("--desktop")
+        .arg("--data-dir")
+        .arg(data)
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to spawn sidecar");
+    let stdout = child.stdout.take().unwrap();
+    let reader = BufReader::new(stdout);
+    (child, reader)
+}
+
 fn kill_sidecar() {
     let pid = SIDECAR_PID.load(Ordering::Relaxed);
     if pid != 0 {
@@ -77,14 +99,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![get_backend_port])
         .setup(|app| {
-            let path = extract_sidecar();
-            let mut child = Command::new(&path)
-                .arg("--desktop")
-                .creation_flags(CREATE_NO_WINDOW)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn()
-                .expect("failed to spawn sidecar");
+            let (mut child, reader) = spawn_sidecar();
 
             SIDECAR_PID.store(child.id(), Ordering::Relaxed);
 

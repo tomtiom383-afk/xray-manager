@@ -45,14 +45,14 @@ BASE_DIR = Path(__file__).resolve().parent
 
 if _ARGS.desktop:
     _ARGS.no_auth = True
-    if _ARGS.data_dir:
-        DATA_DIR = Path(_ARGS.data_dir)
-    else:
-        DATA_DIR = Path.home() / ".xray-manager" / "data"
     if _ARGS.port == 8080:
         _ARGS.port = 0
     _ARGS.no_serve_static = True
     _ARGS.host = "127.0.0.1"
+    if _ARGS.data_dir:
+        DATA_DIR = Path(_ARGS.data_dir)
+    else:
+        DATA_DIR = BASE_DIR / "data"
 elif _ARGS.data_dir:
     DATA_DIR = Path(_ARGS.data_dir)
 else:
