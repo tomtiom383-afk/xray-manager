@@ -99,12 +99,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![get_backend_port])
         .setup(|app| {
-            let (mut child, reader) = spawn_sidecar();
+            let (_child, reader) = spawn_sidecar();
 
-            SIDECAR_PID.store(child.id(), Ordering::Relaxed);
-
-            let stdout = child.stdout.take().unwrap();
-            let reader = BufReader::new(stdout);
+            SIDECAR_PID.store(_child.id(), Ordering::Relaxed);
             let pt = app.state::<AppState>().port_tx.clone();
             std::thread::spawn(move || {
                 for line in reader.lines() {
