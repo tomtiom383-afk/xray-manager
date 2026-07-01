@@ -1,5 +1,6 @@
 use std::io::{BufRead, BufReader};
 use std::os::windows::process::CommandExt;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -12,23 +13,19 @@ use tauri::{
 use tokio::sync::watch;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-
 static SIDECAR_PID: AtomicU32 = AtomicU32::new(0);
+static mut SIDECAR_PATH: Option<PathBuf> = None;
 
-fn find_sidecar() -> Option<String> {
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
-    let installed = dir.join("xray-manager-server-x86_64-pc-windows-msvc.exe");
-    if installed.exists() {
-        return Some(installed.to_string_lossy().into());
+fn extract_sidecar() -> PathBuf {
+    let dir = std::env::temp_dir().join("xray-manager");
+    std::fs::create_dir_all(&dir).ok();
+    let path = dir.join("xray-manager-server.exe");
+    if !path.exists() {
+        let bytes = include_bytes!("../binaries/xray-manager-server-x86_64-pc-windows-msvc.exe");
+        std::fs::write(&path, bytes).expect("failed to extract sidecar");
     }
-    let dev = std::env::current_dir()
-        .ok()?
-        .join("../binaries/xray-manager-server-x86_64-pc-windows-msvc.exe");
-    if dev.exists() {
-        return Some(dev.to_string_lossy().into());
-    }
-    None
+    unsafe { SIDECAR_PATH = Some(path.clone()); }
+    path
 }
 
 fn kill_sidecar() {
@@ -40,6 +37,12 @@ fn kill_sidecar() {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
+    }
+    // Clean up extracted sidecar
+    unsafe {
+        if let Some(ref path) = SIDECAR_PATH {
+            std::fs::remove_file(path).ok();
+        }
     }
 }
 
@@ -74,7 +77,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![get_backend_port])
         .setup(|app| {
-            let path = find_sidecar().expect("sidecar binary not found");
+            let path = extract_sidecar();
             let mut child = Command::new(&path)
                 .arg("--desktop")
                 .creation_flags(CREATE_NO_WINDOW)
