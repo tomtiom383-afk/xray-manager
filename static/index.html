@@ -4,7 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Xray 配置生成器</title>
-  <link rel="stylesheet" href="/static/css/style.css">
+  <script>
+    var isTauri = typeof window.__TAURI_INTERNALS__ !== 'undefined';
+    document.write('<base href="' + (isTauri ? '/' : '/static/') + '">');
+  </script>
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <div class="app" id="app">
@@ -21,7 +25,7 @@
   <div id="modal-root"></div>
   <div id="toast-root" class="toast-wrap"></div>
 
-  <script src="/static/js/foundation.js"></script>
-  <script src="/static/js/interface.js"></script>
+  <script src="js/foundation.js"></script>
+  <script src="js/interface.js"></script>
 </body>
 </html>

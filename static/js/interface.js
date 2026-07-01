@@ -1146,4 +1146,4 @@ function toast(message, error = false) {
 document.addEventListener('keydown', event => { if (event.key === 'Escape') closeModal(); });
 document.addEventListener('click', () => closeStrategyPickers());
 
-initAuth().catch(err => toast(err.message, true));
+initApiBase().then(() => initAuth()).catch(err => toast(err.message || String(err), true));

@@ -7,3 +7,14 @@ data/
 *.bak*
 .DS_Store
 .env
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Tauri
+src-tauri/target/
+src-tauri/binaries/*.exe
+src-tauri/binaries/xray-manager-server-*
+!src-tauri/binaries/.gitkeep

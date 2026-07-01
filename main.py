@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import argparse
 import base64
 import copy
 import hmac
 import json
 import os
 import secrets
+import socket
+import sys
 import tempfile
 import time
 import uuid
@@ -18,16 +21,45 @@ import argon2
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import x25519
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from config_gen import ConfigError, generate_config, validate_reality_short_ids
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Xray Manager")
+    parser.add_argument("--port", type=int, default=8080, help="Port to listen on (0 = auto)")
+    parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
+    parser.add_argument("--data-dir", default="", help="Data directory (default: ./data or ~/.xray-manager/data in desktop mode)")
+    parser.add_argument("--no-serve-static", action="store_true", help="Skip static file serving (desktop sidecar mode)")
+    parser.add_argument("--desktop", action="store_true", help="Desktop mode: auto data dir + random port + print port marker")
+    return parser.parse_args()
+
+
+_ARGS = _parse_args()
+
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(exist_ok=True)
+
+if _ARGS.desktop:
+    if _ARGS.data_dir:
+        DATA_DIR = Path(_ARGS.data_dir)
+    else:
+        DATA_DIR = Path.home() / ".xray-manager" / "data"
+    if _ARGS.port == 8080:
+        _ARGS.port = 0
+    _ARGS.no_serve_static = True
+    _ARGS.host = "127.0.0.1"
+elif _ARGS.data_dir:
+    DATA_DIR = Path(_ARGS.data_dir)
+else:
+    DATA_DIR = BASE_DIR / "data"
+
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "db.json"
+
+_RESOLVED_PORT: int = _ARGS.port if _ARGS.port != 0 else 0
 
 SESSION_LIFETIME = timedelta(hours=24)
 MAX_LOGIN_ATTEMPTS = 5
@@ -95,10 +127,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             print("未启用登录保护，建议访问 /api/auth/setup-required 初始化管理员账号")
     else:
         print(f"登录保护已启用，管理员数: {len(auth.get('users', []))}")
+    if _ARGS.desktop and _RESOLVED_PORT:
+        print(f"__XRAY_MANAGER_PORT__:{_RESOLVED_PORT}", flush=True)
     yield
 
 
 app = FastAPI(title="Xray Manager", version="1.0.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["tauri://localhost", "http://localhost", "http://127.0.0.1"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.middleware("http")
@@ -108,8 +150,14 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    if not _ARGS.no_serve_static:
+        response.headers["Content-Security-Policy"] = "default-src 'self'"
     return response
+
+
+@app.get("/api/health")
+def health() -> dict[str, Any]:
+    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------
@@ -150,9 +198,11 @@ def _clear_session_cookie(response: Response) -> None:
 
 def _create_session(user_id: str) -> str:
     token = secrets.token_urlsafe(32)
+    csrf = secrets.token_urlsafe(32)
     _sessions[token] = {
         "user_id": user_id,
         "expires_at": time.time() + SESSION_LIFETIME.total_seconds(),
+        "csrf_token": csrf,
     }
     return token
 
@@ -233,6 +283,10 @@ def _auth_required(request: Request) -> dict[str, Any]:
     if not auth.get("require_auth"):
         return {"user_id": None, "username": None, "is_authenticated": False}
     token = request.cookies.get("session_id")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
     session = _get_session(token)
     if not session:
         raise HTTPException(status_code=401, detail="未登录或会话已过期")
@@ -249,10 +303,19 @@ def _csrf_required(request: Request) -> None:
     store = load_store()
     if not store.get("auth", {}).get("require_auth", False):
         return
-    cookie = request.cookies.get("csrf_token")
     header = request.headers.get("X-CSRF-Token")
-    if not cookie or not hmac.compare_digest(cookie, header or ""):
+    if not header:
         raise HTTPException(status_code=403, detail="CSRF token 缺失或无效")
+    cookie = request.cookies.get("csrf_token")
+    if cookie and hmac.compare_digest(cookie, header):
+        return
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        session = _get_session(token)
+        if session and session.get("csrf_token") and hmac.compare_digest(session["csrf_token"], header):
+            return
+    raise HTTPException(status_code=403, detail="CSRF token 缺失或无效")
 
 
 def _check_login_rate_limit(client_ip: str) -> None:
@@ -306,8 +369,13 @@ def auth_register(payload: dict[str, Any], response: Response) -> dict[str, Any]
 
     token = _create_session(user_id)
     _set_session_cookie(response, token)
-    _set_csrf_cookie(response)
-    return {"success": True, "user": {"id": user_id, "username": username}}
+    csrf_cookie = _set_csrf_cookie(response)
+    return {
+        "success": True,
+        "user": {"id": user_id, "username": username},
+        "token": token,
+        "csrf_token": _sessions[token]["csrf_token"],
+    }
 
 
 @app.post("/api/auth/login")
@@ -326,13 +394,23 @@ def auth_login(request: Request, payload: dict[str, Any], response: Response) ->
 
     token = _create_session(user["id"])
     _set_session_cookie(response, token)
-    _set_csrf_cookie(response)
-    return {"success": True, "user": {"id": user["id"], "username": user["username"]}}
+    csrf_cookie = _set_csrf_cookie(response)
+    return {
+        "success": True,
+        "user": {"id": user["id"], "username": user["username"]},
+        "token": token,
+        "csrf_token": _sessions[token]["csrf_token"],
+    }
 
 
 @app.post("/api/auth/logout")
 def auth_logout(request: Request, response: Response) -> dict[str, Any]:
-    _destroy_session(request.cookies.get("session_id"))
+    token = request.cookies.get("session_id")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    _destroy_session(token)
     _clear_session_cookie(response)
     return {"success": True}
 
@@ -785,9 +863,10 @@ def activate_vps_profile(profile_id: str) -> dict[str, Any]:
     return _profile_summary(profile, profile_id)
 
 
-@app.get("/")
-def index() -> FileResponse:
-    return FileResponse(BASE_DIR / "static" / "index.html")
+if not _ARGS.no_serve_static:
+    @app.get("/")
+    def index() -> FileResponse:
+        return FileResponse(BASE_DIR / "static" / "index.html")
 
 
 @app.get("/api/inbounds", dependencies=[Depends(_auth_required)])
@@ -1121,4 +1200,5 @@ def _xray_base64(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+if not _ARGS.no_serve_static:
+    app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")

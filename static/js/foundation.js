@@ -1,5 +1,9 @@
 // foundation.js — state, API, auth, utilities, client link generation, share link parsing
 
+let apiBase = '';
+let sessionToken = null;
+let csrfToken = null;
+
 const state = {
   view: 'servers',
   vpsProfiles: [],
@@ -39,17 +43,35 @@ const configNavItems = [
 // ---------------------------------------------------------------------------
 
 function getCsrfToken() {
+  if (csrfToken) return csrfToken;
   const match = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);
   return match ? decodeURIComponent(match[1]) : '';
 }
 
+async function initApiBase() {
+  if (typeof window.__TAURI_INTERNALS__ !== 'undefined') {
+    const { invoke } = window.__TAURI_INTERNALS__;
+    const port = await invoke('get_backend_port');
+    apiBase = 'http://127.0.0.1:' + port;
+  }
+}
+
 const api = async (path, options = {}) => {
-  const init = { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...options };
+  const url = apiBase + path;
+  const isDesktop = !!apiBase;
+  const init = {
+    credentials: isDesktop ? 'omit' : 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    ...options
+  };
   if (init.body && typeof init.body !== 'string') init.body = JSON.stringify(init.body);
+  if (isDesktop && sessionToken) {
+    init.headers['Authorization'] = 'Bearer ' + sessionToken;
+  }
   if (init.method && init.method !== 'GET' && init.method !== 'HEAD') {
     init.headers = { ...init.headers, 'X-CSRF-Token': getCsrfToken() };
   }
-  const res = await fetch(path, init);
+  const res = await fetch(url, init);
   const text = await res.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
@@ -57,6 +79,8 @@ const api = async (path, options = {}) => {
     if (res.status === 401 && state.auth.requireAuth && !path.startsWith('/api/auth/')) {
       state.auth.isLoggedIn = false;
       state.auth.user = null;
+      sessionToken = null;
+      csrfToken = null;
       render();
     }
     const msg = data && data.detail ? data.detail : (text || res.statusText);
@@ -100,6 +124,7 @@ async function initAuth() {
 
 async function login(username, password) {
   const res = await api('/api/auth/login', { method: 'POST', body: { username, password } });
+  if (res.token) { sessionToken = res.token; csrfToken = res.csrf_token; }
   state.auth.isLoggedIn = true;
   state.auth.user = res.user;
   state.auth.requireAuth = true;
@@ -110,6 +135,7 @@ async function login(username, password) {
 
 async function register(username, password) {
   const res = await api('/api/auth/register', { method: 'POST', body: { username, password } });
+  if (res.token) { sessionToken = res.token; csrfToken = res.csrf_token; }
   state.auth.isLoggedIn = true;
   state.auth.user = res.user;
   state.auth.requireAuth = true;
@@ -120,6 +146,8 @@ async function register(username, password) {
 
 async function logout() {
   try { await api('/api/auth/logout', { method: 'POST' }); } catch {}
+  sessionToken = null;
+  csrfToken = null;
   state.auth.isLoggedIn = false;
   state.auth.user = null;
   render();
