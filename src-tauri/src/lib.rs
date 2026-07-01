@@ -60,11 +60,13 @@ fn kill_sidecar() {
             .stderr(Stdio::null())
             .status();
     }
-    // Clean up extracted sidecar
-    unsafe {
-        if let Some(ref path) = SIDECAR_PATH {
-            std::fs::remove_file(path).ok();
-        }
+    // Clean up extracted sidecar and entire temp dir
+    let dir = std::env::temp_dir().join("xray-manager");
+    std::fs::remove_dir_all(dir).ok();
+    // Clean up legacy data dir from older versions
+    if let Ok(home) = std::env::var("USERPROFILE") {
+        let legacy = std::path::Path::new(&home).join(".xray-manager");
+        std::fs::remove_dir_all(legacy).ok();
     }
 }
 
