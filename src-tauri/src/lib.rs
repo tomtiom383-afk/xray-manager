@@ -1,114 +1,123 @@
-use std::sync::{Arc, Mutex};
+use std::io::{BufRead, BufReader};
+use std::os::windows::process::CommandExt;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
-use serde::Serialize;
 use tauri::{
-    image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
     Manager,
 };
-use tauri_plugin_shell::ShellExt;
 use tokio::sync::watch;
 
-#[derive(Clone)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+static SIDECAR_PID: AtomicU32 = AtomicU32::new(0);
+
+fn find_sidecar() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let installed = dir.join("xray-manager-server-x86_64-pc-windows-msvc.exe");
+    if installed.exists() {
+        return Some(installed.to_string_lossy().into());
+    }
+    let dev = std::env::current_dir()
+        .ok()?
+        .join("../binaries/xray-manager-server-x86_64-pc-windows-msvc.exe");
+    if dev.exists() {
+        return Some(dev.to_string_lossy().into());
+    }
+    None
+}
+
+fn kill_sidecar() {
+    let pid = SIDECAR_PID.load(Ordering::Relaxed);
+    if pid != 0 {
+        let _ = Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
 struct AppState {
     port_tx: Arc<watch::Sender<Option<u16>>>,
     port_rx: watch::Receiver<Option<u16>>,
 }
 
-#[derive(Serialize)]
-struct HealthStatus {
-    status: String,
-}
-
 #[tauri::command]
 async fn get_backend_port(state: tauri::State<'_, AppState>) -> Result<u16, String> {
     let mut rx = state.port_rx.clone();
-    // Wait up to 30 seconds for the backend to report its port
     for _ in 0..300 {
         if let Some(port) = *rx.borrow() {
             return Ok(port);
         }
         rx.changed().await.map_err(|e| e.to_string())?;
     }
-    Err("Backend failed to start within 30 seconds".into())
+    Err("Backend timeout".into())
 }
 
 pub fn run() {
+    kill_sidecar();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
     let (port_tx, port_rx) = watch::channel(None);
+    let port_tx = Arc::new(port_tx);
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .manage(AppState {
-            port_tx: Arc::new(port_tx),
+            port_tx: port_tx.clone(),
             port_rx,
         })
         .invoke_handler(tauri::generate_handler![get_backend_port])
         .setup(|app| {
-            let app_handle = app.handle().clone();
-            let port_tx = app.state::<AppState>().port_tx.clone();
+            let path = find_sidecar().expect("sidecar binary not found");
+            let mut child = Command::new(&path)
+                .arg("--desktop")
+                .creation_flags(CREATE_NO_WINDOW)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("failed to spawn sidecar");
 
-            // Spawn sidecar
-            tauri::async_runtime::spawn(async move {
-                let sidecar = app_handle
-                    .shell()
-                    .sidecar("xray-manager-server")
-                    .expect("failed to find sidecar binary");
+            SIDECAR_PID.store(child.id(), Ordering::Relaxed);
 
-                let (mut rx, _child) = sidecar
-                    .args(["--desktop"])
-                    .spawn()
-                    .expect("failed to spawn sidecar");
-
-                while let Some(event) = rx.recv().await {
-                    match event {
-                        tauri_plugin_shell::process::CommandEvent::Stdout(line) => {
-                            let line = String::from_utf8_lossy(&line);
-                            eprintln!("[sidecar] {}", line.trim());
-                            if let Some(port_str) = line.trim().strip_prefix("__XRAY_MANAGER_PORT__:") {
-                                if let Ok(port) = port_str.trim().parse::<u16>() {
-                                    let _ = port_tx.send(Some(port));
-                                }
+            let stdout = child.stdout.take().unwrap();
+            let reader = BufReader::new(stdout);
+            let pt = app.state::<AppState>().port_tx.clone();
+            std::thread::spawn(move || {
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        if let Some(ps) = line.trim().strip_prefix("__XRAY_MANAGER_PORT__:") {
+                            if let Ok(p) = ps.trim().parse::<u16>() {
+                                let _ = pt.send(Some(p));
+                                break;
                             }
                         }
-                        tauri_plugin_shell::process::CommandEvent::Stderr(line) => {
-                            let line = String::from_utf8_lossy(&line);
-                            eprintln!("[sidecar:err] {}", line.trim());
-                        }
-                        tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
-                            eprintln!("[sidecar] terminated: {:?}", payload);
-                            break;
-                        }
-                        _ => {}
                     }
                 }
             });
 
-            // Build tray menu
-            let show_item = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
-            let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
-            let menu = MenuBuilder::new(app)
-                .item(&show_item)
-                .separator()
-                .item(&quit_item)
-                .build()?;
-
-            // Build tray icon
-            let icon = Image::from_bytes(include_bytes!("../icons/icon.png"))
-                .unwrap_or_else(|_| Image::from_bytes(include_bytes!("../icons/32x32.png")).unwrap());
-
+            let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
+            let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+            let menu = MenuBuilder::new(app).item(&show).separator().item(&quit).build()?;
+            let icon = app.default_window_icon().unwrap().clone();
             TrayIconBuilder::new()
                 .icon(icon)
                 .tooltip("Xray Manager")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "quit" => {
+                        kill_sidecar();
                         app.exit(0);
                     }
                     "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
                         }
                     }
                     _ => {}
@@ -116,27 +125,24 @@ pub fn run() {
                 .on_tray_icon_event(|tray, event| {
                     if let tauri::tray::TrayIconEvent::DoubleClick { .. } = event {
                         let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
                         }
                     }
                 })
                 .build(app)?;
 
-            // Minimize to tray on window close
             let window = app.get_webview_window("main").unwrap();
-            window.on_window_event(move |event| {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    if let Some(window) = api.webview().and_then(|w| w.get_webview_window("main")) {
-                        let _ = window.hide();
-                    }
+            window.on_window_event(|event| {
+                if let tauri::WindowEvent::CloseRequested { .. } = event {
+                    kill_sidecar();
+                    std::process::exit(0);
                 }
             });
 
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("failed");
 }

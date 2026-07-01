@@ -30,11 +30,12 @@ from config_gen import ConfigError, generate_config, validate_reality_short_ids
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Xray Manager")
-    parser.add_argument("--port", type=int, default=8080, help="Port to listen on (0 = auto)")
-    parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
-    parser.add_argument("--data-dir", default="", help="Data directory (default: ./data or ~/.xray-manager/data in desktop mode)")
-    parser.add_argument("--no-serve-static", action="store_true", help="Skip static file serving (desktop sidecar mode)")
-    parser.add_argument("--desktop", action="store_true", help="Desktop mode: auto data dir + random port + print port marker")
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--data-dir", default="")
+    parser.add_argument("--no-serve-static", action="store_true")
+    parser.add_argument("--desktop", action="store_true")
+    parser.add_argument("--no-auth", action="store_true")
     return parser.parse_args()
 
 
@@ -43,6 +44,7 @@ _ARGS = _parse_args()
 BASE_DIR = Path(__file__).resolve().parent
 
 if _ARGS.desktop:
+    _ARGS.no_auth = True
     if _ARGS.data_dir:
         DATA_DIR = Path(_ARGS.data_dir)
     else:
@@ -136,7 +138,7 @@ app = FastAPI(title="Xray Manager", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["tauri://localhost", "http://localhost", "http://127.0.0.1"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -278,6 +280,8 @@ def _find_auth_user(store: dict[str, Any], username: str) -> dict[str, Any] | No
 
 
 def _auth_required(request: Request) -> dict[str, Any]:
+    if _ARGS.no_auth:
+        return {"user_id": None, "username": None, "is_authenticated": False}
     store = load_store()
     auth = store.get("auth", {})
     if not auth.get("require_auth"):
@@ -300,6 +304,8 @@ def _auth_required(request: Request) -> dict[str, Any]:
 
 
 def _csrf_required(request: Request) -> None:
+    if _ARGS.no_auth:
+        return
     store = load_store()
     if not store.get("auth", {}).get("require_auth", False):
         return

@@ -90,6 +90,15 @@ const api = async (path, options = {}) => {
 };
 
 async function initAuth() {
+  if (isTauri) {
+    state.auth.isLoggedIn = true;
+    state.auth.requireAuth = false;
+    state.auth.setupRequired = false;
+    state.auth.checking = false;
+    await refreshAll();
+    render();
+    return;
+  }
   try {
     const setup = await api('/api/auth/setup-required');
     state.auth.requireAuth = true;

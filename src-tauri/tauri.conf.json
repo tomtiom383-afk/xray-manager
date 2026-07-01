@@ -31,8 +31,13 @@
       "icons/128x128@2x.png",
       "icons/icon.ico"
     ],
-    "externalBin": [
-      "binaries/xray-manager-server"
-    ]
+    "resources": {
+      "binaries/xray-manager-server-x86_64-pc-windows-msvc.exe": "./"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
   }
 }

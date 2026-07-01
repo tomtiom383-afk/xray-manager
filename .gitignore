@@ -18,3 +18,4 @@ src-tauri/target/
 src-tauri/binaries/*.exe
 src-tauri/binaries/xray-manager-server-*
 !src-tauri/binaries/.gitkeep
+/error.log
